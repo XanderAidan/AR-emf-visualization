@@ -2,377 +2,431 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Aether Scanner: Heatmap</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sensor Fusion HUD</title>
     <style>
-        :root {
-            --hud-bg: rgba(10, 10, 16, 0.85);
-            --neon-blue: #00f3ff;
-            --neon-green: #00ff9d;
-            --neon-red: #ff0055;
-        }
-
-        body {
-            margin: 0;
+        /* --- CORE LAYOUT --- */
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: #000;
             overflow: hidden;
-            font-family: 'Segoe UI', monospace;
-            background-color: #000;
-            color: #fff;
-            user-select: none;
+            font-family: 'Courier New', Courier, monospace;
         }
 
-        /* --- HUD LAYOUT --- */
-        #hud {
+        /* Camera Feed Layer */
+        #camera-feed {
             position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        /* Visualization Layer */
+        #hud-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 2;
+        }
+
+        /* UI Text Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 3;
             pointer-events: none;
-            display: none;
-            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
         }
 
-        .panel {
-            position: absolute;
-            background: var(--hud-bg);
-            backdrop-filter: blur(4px);
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-
+        /* --- UI ELEMENTS --- */
         .top-bar {
-            top: 20px; left: 50%; transform: translateX(-50%);
-            display: flex; gap: 20px;
-            white-space: nowrap;
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-top: 2px solid #00f3ff;
+            backdrop-filter: blur(4px);
         }
 
-        .stat-box { text-align: center; }
-        .label { font-size: 0.6rem; color: #888; letter-spacing: 1px; }
-        .val { font-size: 1.1rem; font-weight: bold; font-family: 'Courier New', monospace; }
+        .sensor-readout {
+            text-align: center;
+        }
+        
+        .label { font-size: 10px; color: #aaa; letter-spacing: 1px; text-transform: uppercase; }
+        .value { font-size: 18px; font-weight: bold; color: #fff; }
+        .unit { font-size: 10px; color: #00f3ff; }
 
-        .c-safe { color: var(--neon-blue); }
-        .c-warn { color: #ffcc00; }
-        .c-danger { color: var(--neon-red); }
-
-        /* Color Scale Legend */
-        .legend {
+        /* The EMF Reticle */
+        #reticle {
             position: absolute;
-            bottom: 30px; right: 20px;
-            width: 10px; height: 150px;
-            background: linear-gradient(to top, var(--neon-blue), var(--neon-green), #ffcc00, var(--neon-red));
-            border-radius: 5px;
-            border: 1px solid rgba(255,255,255,0.3);
-        }
-        .legend::after {
-            content: 'MAX'; position: absolute; top: -15px; left: -10px; font-size: 0.6rem;
-        }
-        .legend::before {
-            content: 'MIN'; position: absolute; bottom: -15px; left: -10px; font-size: 0.6rem;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px; height: 200px;
+            border: 2px solid rgba(0, 243, 255, 0.3);
+            border-radius: 50%;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.1);
+            transition: border-color 0.2s, box-shadow 0.2s, width 0.2s, height 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        /* Intro Screen */
-        #intro {
+        /* Crosshairs inside reticle */
+        #reticle::after {
+            content: '';
+            width: 10px; height: 10px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+        }
+
+        /* Dynamic Color Classes */
+        .safe { color: #00f3ff; border-color: #00f3ff; }
+        .warn { color: #ffcc00; border-color: #ffcc00; }
+        .danger { color: #ff0055; border-color: #ff0055; }
+
+        /* Start Button overlay */
+        #start-overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
             background: #000;
+            z-index: 10;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 100;
+            color: #00f3ff;
         }
+        
         button {
             background: transparent;
-            color: var(--neon-blue);
-            border: 2px solid var(--neon-blue);
-            padding: 15px 30px;
-            font-size: 1rem;
+            color: #00f3ff;
+            border: 1px solid #00f3ff;
+            padding: 15px 40px;
+            font-size: 16px;
+            margin-top: 20px;
+            cursor: pointer;
             text-transform: uppercase;
             letter-spacing: 2px;
-            margin-top: 20px;
         }
+
+        /* Scanning effect */
+        .scan-line {
+            position: absolute;
+            width: 100%; height: 2px;
+            background: rgba(0, 243, 255, 0.5);
+            animation: scan 3s linear infinite;
+            pointer-events: none;
+            z-index: 4;
+            display: none; /* Active only when running */
+        }
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+
+        #nfc-alert {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -150%);
+            background: rgba(255, 204, 0, 0.9);
+            color: #000;
+            padding: 10px 20px;
+            font-weight: bold;
+            display: none;
+            border-radius: 4px;
+            box-shadow: 0 0 20px #ffcc00;
+        }
+
     </style>
 </head>
 <body>
 
-    <div id="intro">
-        <h1 style="color: var(--neon-blue);">AETHER MAPPER</h1>
-        <p style="color: #666; font-size: 0.8rem;">EMF & ULTRASOUND VISUALIZER</p>
-        <button id="start-btn">INITIALIZE AR</button>
-    </div>
+    <!-- VIDEO BACKGROUND -->
+    <video id="camera-feed" autoplay playsinline muted></video>
 
-    <div id="hud">
-        <div class="panel top-bar">
-            <div class="stat-box">
-                <div class="label">EMF (µT)</div>
-                <div id="val-mag" class="val c-safe">0.0</div>
+    <!-- CANVAS FOR WAVEFORMS -->
+    <canvas id="hud-canvas"></canvas>
+
+    <!-- UI LAYER -->
+    <div id="ui-layer" style="display:none;">
+        
+        <!-- Top Data Bar -->
+        <div class="top-bar">
+            <div class="sensor-readout">
+                <div class="label">MAG FIELD</div>
+                <div id="val-mag" class="value safe">0</div>
+                <div class="unit">µT</div>
             </div>
-            <div class="stat-box">
-                <div class="label">ULTRASOUND</div>
-                <div id="val-ultra" class="val c-safe">LOW</div>
+            <div class="sensor-readout">
+                <div class="label">LIGHT</div>
+                <div id="val-lux" class="value">0</div>
+                <div class="unit">LUX</div>
+            </div>
+            <div class="sensor-readout">
+                <div class="label">AUDIO</div>
+                <div id="val-db" class="value">0</div>
+                <div class="unit">dB</div>
             </div>
         </div>
-        <div class="legend"></div>
+
+        <!-- Center Element -->
+        <div id="reticle"></div>
+        <div id="nfc-alert">NFC TAG DETECTED</div>
+
+        <!-- Bottom - Placeholder for Graph Alignment -->
+        <div style="height: 100px; width: 100%;"></div> 
+        
+        <div class="scan-line" id="scan-line"></div>
     </div>
 
-    <!-- Three.js Imports -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+    <!-- START SCREEN -->
+    <div id="start-overlay">
+        <h1>SENSOR FUSION HUD</h1>
+        <div style="font-size: 12px; color: #666; margin-bottom: 20px;">PIXEL 10 PRO XL OPTIMIZED</div>
+        <div id="status-log" style="font-size: 10px; color: #888; margin-bottom: 20px; max-width: 300px; text-align: center;">Waiting for initialization...</div>
+        <button id="init-btn">ACTIVATE SENSORS</button>
+    </div>
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { ARButton } from 'three/addons/webxr/ARButton.js';
-
+    <script>
         // --- CONFIG ---
         const CONFIG = {
-            spawnRate: 50,      // ms (Faster for smoother trail)
-            particleLife: 15000, // Trail stays longer (15s)
-            magMin: 30,         // Blue
-            magMax: 100,        // Red
+            magSafe: 40,
+            magWarn: 60,
+            magDanger: 100,
+            simMode: false // Auto-enables if sensors missing
         };
 
         // --- STATE ---
-        let camera, scene, renderer;
-        let particles = [];
-        let lastSpawn = 0;
-        
-        let sData = {
-            mag: 40,
-            ultrasound: 0 // 0.0 to 1.0
+        const state = {
+            mag: 45,
+            lux: 200,
+            audioVol: 0, // 0.0 - 1.0
+            audioHighFreq: 0,
+            waveform: new Uint8Array(128)
         };
 
-        const textureLoader = new THREE.TextureLoader();
-        // Create a soft glow texture programmatically
-        const canvas = document.createElement('canvas');
-        canvas.width = 32; canvas.height = 32;
-        const ctx = canvas.getContext('2d');
-        const grad = ctx.createRadialGradient(16,16,0, 16,16,16);
-        grad.addColorStop(0, 'rgba(255,255,255,1)');
-        grad.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0,0,32,32);
-        const glowTexture = new THREE.CanvasTexture(canvas);
+        // --- DOM REFS ---
+        const ui = {
+            video: document.getElementById('camera-feed'),
+            canvas: document.getElementById('hud-canvas'),
+            uiLayer: document.getElementById('ui-layer'),
+            startOverlay: document.getElementById('start-overlay'),
+            initBtn: document.getElementById('init-btn'),
+            status: document.getElementById('status-log'),
+            valMag: document.getElementById('val-mag'),
+            valLux: document.getElementById('val-lux'),
+            valDb: document.getElementById('val-db'),
+            reticle: document.getElementById('reticle'),
+            scanLine: document.getElementById('scan-line'),
+            nfcAlert: document.getElementById('nfc-alert')
+        };
 
-        init();
+        // --- INITIALIZATION ---
+        ui.initBtn.addEventListener('click', startApp);
 
-        function init() {
-            const btn = document.getElementById('start-btn');
-            btn.addEventListener('click', () => {
-                document.getElementById('intro').style.display = 'none';
-                document.getElementById('hud').style.display = 'block';
-                setupSensors();
-                setupThree();
-            });
+        async function startApp() {
+            ui.status.innerText = "Requesting Camera & Sensor Access...";
+            
+            try {
+                // 1. Camera Access (Environment/Rear Camera)
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' }, 
+                    audio: false // Audio captured separately for analysis
+                });
+                ui.video.srcObject = stream;
+                
+                // 2. Audio Analysis Access
+                setupAudio();
+
+                // 3. Hardware Sensors
+                setupHardwareSensors();
+
+                // 4. Start NFC (If user clicks button again or separate trigger, but we'll arm it)
+                setupNFC();
+
+                // 5. UI Transition
+                ui.startOverlay.style.display = 'none';
+                ui.uiLayer.style.display = 'flex';
+                ui.scanLine.style.display = 'block';
+
+                // 6. Start Render Loop
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+                requestAnimationFrame(renderLoop);
+
+            } catch (err) {
+                ui.status.innerText = "Error: " + err.message + "\n(Ensure HTTPS and Permissions)";
+                console.error(err);
+                // Fallback to Sim Mode
+                setTimeout(() => {
+                    CONFIG.simMode = true;
+                    ui.startOverlay.style.display = 'none';
+                    ui.uiLayer.style.display = 'flex';
+                    ui.video.style.background = '#222'; // Grey background if no cam
+                    requestAnimationFrame(renderLoop);
+                }, 2000);
+            }
         }
 
-        async function setupSensors() {
-            // 1. Magnetometer
+        // --- SENSORS ---
+
+        async function setupAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = ctx.createAnalyser();
+                const src = ctx.createMediaStreamSource(stream);
+                src.connect(analyser);
+                analyser.fftSize = 256;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+
+                const update = () => {
+                    analyser.getByteTimeDomainData(dataArray); // Waveform
+                    state.waveform = dataArray;
+                    
+                    // Volume Calc
+                    let sum = 0;
+                    for(let i=0; i<dataArray.length; i++) {
+                        const v = (dataArray[i] - 128) / 128.0;
+                        sum += v*v;
+                    }
+                    state.audioVol = Math.sqrt(sum / dataArray.length); // RMS
+                    
+                    requestAnimationFrame(update);
+                }
+                update();
+            } catch(e) {
+                console.warn("Audio failed", e);
+            }
+        }
+
+        function setupHardwareSensors() {
+            // Magnetometer
             if ('Magnetometer' in window) {
                 try {
                     const mag = new Magnetometer({ frequency: 60 });
                     mag.addEventListener('reading', () => {
-                        sData.mag = Math.sqrt(mag.x**2 + mag.y**2 + mag.z**2);
-                        updateHUD();
+                        state.mag = Math.sqrt(mag.x**2 + mag.y**2 + mag.z**2);
                     });
                     mag.start();
-                } catch(e) { console.log("Mag error", e); }
-            } else {
-                // Sim mode
-                setInterval(() => {
-                    sData.mag = 40 + Math.sin(Date.now()/1000)*30; 
-                    updateHUD();
-                }, 100);
-            }
+                } catch (e) { console.warn("Mag sensor error", e); CONFIG.simMode = true; }
+            } else { CONFIG.simMode = true; }
 
-            // 2. Ultrasound (High Frequency Audio)
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const analyser = audioCtx.createAnalyser();
-                const source = audioCtx.createMediaStreamSource(stream);
-                source.connect(analyser);
-                analyser.fftSize = 64; // 32 bins
-                const data = new Uint8Array(analyser.frequencyBinCount);
-
-                const loop = () => {
-                    analyser.getByteFrequencyData(data);
-                    // Check top 25% of frequencies (approx 15kHz - 24kHz)
-                    let sum = 0;
-                    const startBin = Math.floor(data.length * 0.75);
-                    for(let i=startBin; i<data.length; i++) sum += data[i];
-                    
-                    // Normalize (High freq is usually very quiet, so amplify)
-                    sData.ultrasound = Math.min((sum / (data.length - startBin)) / 30.0, 1.0);
-                    
-                    requestAnimationFrame(loop);
-                };
-                loop();
-            } catch(e) {}
-        }
-
-        function updateHUD() {
-            const uiMag = document.getElementById('val-mag');
-            uiMag.innerText = sData.mag.toFixed(1);
-            
-            // Color Logic
-            if(sData.mag < 50) uiMag.className = "val c-safe";
-            else if(sData.mag < 80) uiMag.className = "val c-warn";
-            else uiMag.className = "val c-danger";
-
-            const uiUltra = document.getElementById('val-ultra');
-            if(sData.ultrasound > 0.5) {
-                uiUltra.innerText = "DETECTED";
-                uiUltra.className = "val c-danger";
-            } else {
-                uiUltra.innerText = "LOW";
-                uiUltra.className = "val c-safe";
+            // Light
+            if ('AmbientLightSensor' in window) {
+                try {
+                    const light = new AmbientLightSensor({ frequency: 10 });
+                    light.addEventListener('reading', () => { state.lux = light.illuminance; });
+                    light.start();
+                } catch(e) {}
             }
         }
 
-        function setupThree() {
-            const container = document.createElement('div');
-            document.body.appendChild(container);
-
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
-            
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            container.appendChild(renderer.domElement);
-
-            const arBtn = ARButton.createButton(renderer, { 
-                requiredFeatures: ['hit-test', 'dom-overlay'], 
-                domOverlay: { root: document.body } 
-            });
-            document.body.appendChild(arBtn);
-
-            renderer.setAnimationLoop(render);
+        async function setupNFC() {
+            if ('NDEFReader' in window) {
+                try {
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+                    ndef.addEventListener("reading", () => {
+                        // Flash UI
+                        ui.nfcAlert.style.display = 'block';
+                        setTimeout(() => ui.nfcAlert.style.display = 'none', 3000);
+                    });
+                } catch(e) { console.log("NFC Error", e); }
+            }
         }
 
-        // Reusable material for particles (using Additive Blending for "Heatmap" look)
-        const particleMat = new THREE.PointsMaterial({
-            size: 0.15, // 15cm dots
-            map: glowTexture,
-            transparent: true,
-            opacity: 0.8,
-            vertexColors: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false
-        });
+        // --- RENDER LOOP ---
 
-        // Geometry buffer for particles
-        const MAX_POINTS = 1000;
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(MAX_POINTS * 3);
-        const colors = new Float32Array(MAX_POINTS * 3);
-        const sizes = new Float32Array(MAX_POINTS); // For ultrasound jitter
-        
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        
-        // We will manually manage the "active" particles
-        const particleSystem = new THREE.Points(geometry, particleMat);
-        // Ensure standard frustum culling doesn't hide it if bounding box is old
-        particleSystem.frustumCulled = false; 
-        scene.add(particleSystem);
+        function resizeCanvas() {
+            ui.canvas.width = window.innerWidth;
+            ui.canvas.height = window.innerHeight;
+        }
 
-        let particleCount = 0;
-        let pData = []; // Store metadata (birth time, etc)
+        function renderLoop() {
+            const ctx = ui.canvas.getContext('2d');
+            const w = ui.canvas.width;
+            const h = ui.canvas.height;
 
-        function render(timestamp, frame) {
-            // Spawn Logic
-            if ((renderer.xr.isPresenting || true) && (timestamp - lastSpawn > CONFIG.spawnRate)) {
-                spawnParticle();
-                lastSpawn = timestamp;
-            }
+            // Clear previous frame
+            ctx.clearRect(0, 0, w, h);
 
-            // Update Geometry
-            const posAttr = geometry.attributes.position;
-            const colAttr = geometry.attributes.color;
-
-            // Shift Array or Ring Buffer? For simplicity, we just rebuild arrays or use a rolling index.
-            // Let's standard array management for readability:
-            
-            // 1. Remove old particles
-            for (let i = pData.length - 1; i >= 0; i--) {
-                if (timestamp - pData[i].birth > CONFIG.particleLife) {
-                    pData.splice(i, 1);
+            // 1. Simulation Data Fallback
+            if (CONFIG.simMode) {
+                const t = Date.now() / 1000;
+                state.mag = 45 + Math.sin(t)*15 + Math.cos(t*3)*10;
+                state.audioVol = (Math.sin(t*10)+1)*0.1;
+                // Generate fake waveform
+                for(let i=0; i<state.waveform.length; i++) {
+                    state.waveform[i] = 128 + Math.sin(i*0.2 + t*10)*30;
                 }
             }
 
-            // 2. Update Buffer Attributes
-            for (let i = 0; i < pData.length; i++) {
-                const p = pData[i];
+            // 2. Update Text UI
+            ui.valMag.innerText = state.mag.toFixed(1);
+            ui.valLux.innerText = state.lux.toFixed(0);
+            ui.valDb.innerText = (state.audioVol * 100).toFixed(0);
+
+            // 3. Reticle Logic (EMF)
+            // Color Mapping
+            let color = '#00f3ff'; // Safe
+            if (state.mag > CONFIG.magWarn) color = '#ffcc00'; // Warn
+            if (state.mag > CONFIG.magDanger) color = '#ff0055'; // Danger
+
+            // Apply to CSS
+            ui.reticle.style.borderColor = color;
+            ui.reticle.style.boxShadow = `0 0 ${state.mag/2}px ${color}`;
+            ui.valMag.style.color = color;
+
+            // Pulse Size based on Strength
+            const scale = 1 + (state.mag - 40)/200; 
+            ui.reticle.style.transform = `translate(-50%, -50%) scale(${scale})`;
+
+            // 4. Draw Audio Waveform (Bottom)
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = color; // Sync waveform color to EMF danger level for effect
+            ctx.beginPath();
+            
+            const sliceWidth = w * 1.0 / state.waveform.length;
+            let x = 0;
+            const yOffset = h - 100; // Draw 100px from bottom
+
+            for(let i = 0; i < state.waveform.length; i++) {
+                const v = state.waveform[i] / 128.0;
+                const y = v * 50 + (h - 150); // Amplitude 50
                 
-                // Jitter effect if Ultrasound detected
-                let jitterX = 0, jitterY = 0;
-                if (p.ultra > 0.2) {
-                    const amount = p.ultra * 0.02;
-                    jitterX = (Math.random()-0.5) * amount;
-                    jitterY = (Math.random()-0.5) * amount;
-                }
-
-                positions[i*3] = p.x + jitterX;
-                positions[i*3+1] = p.y + jitterY;
-                positions[i*3+2] = p.z;
-
-                colors[i*3] = p.r;
-                colors[i*3+1] = p.g;
-                colors[i*3+2] = p.b;
+                if(i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+                x += sliceWidth;
             }
+            ctx.lineTo(w, h/2);
+            ctx.stroke();
 
-            geometry.setDrawRange(0, pData.length);
-            posAttr.needsUpdate = true;
-            colAttr.needsUpdate = true;
+            // 5. Light Sensor Vignette
+            // Darker room (low lux) = More UI Glow / Brighter Overlay
+            // Bright room (high lux) = Darker Overlay to see screen
+            // Or visualize light intensity as a white alpha overlay
+            // Let's use it to dim the edges.
+            const vignetteOpacity = Math.max(0, Math.min(1 - (state.lux / 500), 0.8));
+            const gradient = ctx.createRadialGradient(w/2, h/2, h/4, w/2, h/2, h);
+            gradient.addColorStop(0, "rgba(0,0,0,0)");
+            gradient.addColorStop(1, `rgba(0,0,0,${vignetteOpacity})`);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0,0,w,h);
 
-            renderer.render(scene, camera);
+            requestAnimationFrame(renderLoop);
         }
 
-        function spawnParticle() {
-            if (pData.length >= MAX_POINTS) pData.shift(); // Remove oldest
-
-            // Get Position
-            const vec = new THREE.Vector3();
-            if (renderer.xr.isPresenting) {
-                const camPos = new THREE.Vector3(); 
-                const camQuat = new THREE.Quaternion();
-                camera.getWorldPosition(camPos);
-                camera.getWorldQuaternion(camQuat);
-                vec.copy(camPos).add(new THREE.Vector3(0, -0.2, -0.5).applyQuaternion(camQuat));
-            } else {
-                // Sim Orbit
-                const t = Date.now() * 0.001;
-                vec.set(Math.sin(t)*0.5, Math.cos(t)*0.2, Math.cos(t*0.5)*0.5);
-            }
-
-            // Calculate Color (Heatmap Gradient)
-            // Normalized 0 to 1
-            const t = Math.min(Math.max((sData.mag - CONFIG.magMin) / (CONFIG.magMax - CONFIG.magMin), 0), 1);
-            
-            // Heatmap: Blue -> Green -> Red
-            const color = new THREE.Color();
-            if (t < 0.5) {
-                // Blue to Green
-                color.lerpColors(new THREE.Color(0x00f3ff), new THREE.Color(0x00ff00), t * 2);
-            } else {
-                // Green to Red
-                color.lerpColors(new THREE.Color(0x00ff00), new THREE.Color(0xff0000), (t - 0.5) * 2);
-            }
-
-            pData.push({
-                x: vec.x, y: vec.y, z: vec.z,
-                r: color.r, g: color.g, b: color.b,
-                ultra: sData.ultrasound,
-                birth: performance.now()
-            });
-        }
     </script>
 </body>
 </html>
